@@ -2,7 +2,10 @@ import os
 import requests
 import threading
 from telethon import TelegramClient, events
+from telethon.tl import functions, types
+from telethon.errors import SessionPasswordNeededError
 from dotenv import load_dotenv
+import asyncio
 
 load_dotenv()
 
@@ -13,6 +16,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_IDS = [int(x.strip()) for x in os.getenv("CHAT_IDS").split(",")]
 CHANNEL_IDS = [int(x.strip()) for x in os.getenv("CHANNEL_IDS").split(",")]
 
+# Исправлено: добавляем параметр для автоматического решения кода подтверждения
 client = TelegramClient("session", API_ID, API_HASH)
 
 # =========================
@@ -71,7 +75,8 @@ def send_to_all(text: str):
         try:
             requests.post(url, data={
                 "chat_id": chat_id,
-                "text": text
+                "text": text,
+                "parse_mode": "HTML"
             })
         except Exception as e:
             print(f"Ошибка отправки в {chat_id}: {e}")
@@ -148,7 +153,7 @@ async def handler(event):
     link = make_link(chat, event.message.id)
 
     message = (
-        "🧵 ПОХОЖЕ НА ЗАКАЗ\n"
+        "🧵 <b>ПОХОЖЕ НА ЗАКАЗ</b>\n"
         f"📢 {title}\n"
         f"🔗 {link}\n\n"
         f"{text[:900]}"
@@ -165,7 +170,7 @@ def check_commands():
         try:
             response = requests.get(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
-                params={"offset": last_update_id + 1}
+                params={"offset": last_update_id + 1, "timeout": 30}
             ).json()
 
             for update in response.get("result", []):
@@ -176,9 +181,9 @@ def check_commands():
                     chat_id = msg["chat"]["id"]
 
                     status = (
-                        "✅ Бот работает\n"
+                        "✅ <b>Бот работает</b>\n"
                         f"Каналов: {len(CHANNEL_IDS)}\n\n"
-                        "Последние логи:\n"
+                        "<b>Последние логи:</b>\n"
                         + ("\n".join(LOGS[-10:]) if LOGS else "нет")
                     )
 
@@ -186,20 +191,28 @@ def check_commands():
                         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                         data={
                             "chat_id": chat_id,
-                            "text": status
+                            "text": status,
+                            "parse_mode": "HTML"
                         }
                     )
 
         except Exception as e:
             print("Ошибка check_commands:", e)
+        
+        import time
+        time.sleep(1)
 
 # =========================
-print("🚀 Бот запущен и фильтрует ТОЛЬКО заказы...")
+async def main():
+    print("🚀 Бот запущен и фильтрует ТОЛЬКО заказы...")
+    
+    # Запускаем проверку команд в отдельном потоке
+    threading.Thread(target=check_commands, daemon=True).start()
+    
+    # Запускаем клиента
+    await client.start()
+    await client.run_until_disconnected()
 
-threading.Thread(
-    target=check_commands,
-    daemon=True
-).start()
-
-client.start()
-client.run_until_disconnected()
+# =========================
+if __name__ == "__main__":
+    asyncio.run(main())
